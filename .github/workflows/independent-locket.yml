@@ -1,0 +1,159 @@
+# Run once to snapshot the full upstream repository into YOUR new GitHub repo.
+# Future runs use the local copy. Requires a PUBLIC repo for Shadowrocket raw URLs.
+name: Build my independent Locket module
+
+on:
+  workflow_dispatch:
+    inputs:
+      telegram:
+        description: 'Telegram username (without @), 5-32 chars'
+        required: true
+        type: string
+      brand:
+        description: 'Your module display name'
+        required: true
+        default: 'My Locket'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  create-own-copy:
+    runs-on: ubuntu-latest
+    env:
+      CUSTOM_TELEGRAM: ${{ inputs.telegram }}
+      CUSTOM_BRAND: ${{ inputs.brand }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Clone original sources ONLY for first installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_NAME}" != "main" ]]; then
+            echo 'Make the default branch main before running this workflow.' >&2
+            exit 1
+          fi
+          if [[ ! -f scripts/locket.js ]]; then
+            git clone --depth=1 --branch main https://github.com/Cuios-shop/locket_cuios_stable.git /tmp/cuios-snapshot
+            git -C /tmp/cuios-snapshot rev-parse HEAD > UPSTREAM_COMMIT.txt
+            # Do not copy the upstream workflow or the .git history/credentials.
+            rsync -a --exclude='.git' --exclude='.github' /tmp/cuios-snapshot/ ./
+            echo 'First run: imported the complete public source snapshot.'
+          else
+            echo 'Local source exists: NOT contacting original Cuios repository.'
+          fi
+      - name: Build module and redirect all active runtime assets to my repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'OWNIFY_PY'
+          import os, pathlib, re, json, hashlib, subprocess
+
+          root = pathlib.Path.cwd()
+          repository = os.environ['GITHUB_REPOSITORY']
+          brand = os.environ['CUSTOM_BRAND'].strip()
+          username = os.environ['CUSTOM_TELEGRAM'].strip()
+          username = re.sub(r'^(?:https?://)?t\.me/', '', username, flags=re.I).removeprefix('@')
+
+          if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
+              raise SystemExit('Invalid GitHub owner/repo')
+          if not brand or len(brand) > 48 or any(c in brand for c in '\n\r'):
+              raise SystemExit('Brand should be 1-48 characters')
+          if not re.fullmatch(r'[A-Za-z0-9_]{5,32}', username):
+              raise SystemExit('Telegram username must be 5-32 chars: Latin letters, numbers, underscore')
+
+          old = 'https://raw.githubusercontent.com/Cuios-shop/locket_cuios_stable/main/'
+          new = f'https://raw.githubusercontent.com/{repository}/main/'
+
+          # These text resources can embed URLs pointing at the original author repository.
+          for path in root.rglob('*'):
+              if not path.is_file() or '.git' in path.parts or '.github' in path.parts:
+                  continue
+              if path.name == 'LICENSE' or path.stat().st_size > 2_000_000:
+                  continue
+              if path.suffix.lower() not in {'.js', '.json', '.py', '.sgmodule', '.md', '.txt', '.yml', '.yaml', '.html', '.css'}:
+                  continue
+              try:
+                  source = path.read_text(encoding='utf-8')
+              except UnicodeError:
+                  continue
+              updated = source.replace(old, new)
+              # Also fix commit-pinned URLs saved in older archived modules.
+              updated = re.sub(r'https://raw\.githubusercontent\.com/Cuios-shop/locket_cuios_stable/[a-f0-9]{40}/', new, updated, flags=re.I)
+              if updated != source:
+                  path.write_text(updated, encoding='utf-8')
+
+          # Personalize the actual caption catalogue, which is embedded in the runtime.
+          catalogue_path = root / 'content/captions.json'
+          catalogue = json.loads(catalogue_path.read_text(encoding='utf-8'))
+          assert len(catalogue) == 9 and len(catalogue[0]['items']) == 4, 'Unexpected caption format'
+          items = {x[0]: x for x in catalogue[0]['items']}
+          assert set(items) == {'certificate', 'copyright', 'cun', 'tom'}, 'Upstream caption identifiers changed'
+          catalogue[0]['section'] = brand + ' • Ghi chú'
+          items['certificate'][1] = 't.me/' + username
+          items['copyright'][1] = brand
+          items['cun'][1] = 'Video dài'
+          items['tom'][1] = 'Có âm thanh'
+          catalogue_path.write_text(json.dumps(catalogue, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          # Ensure the build tool publishes every module/runtime under *your* repository.
+          script_path = root / 'scripts/locket.js'
+          module_builder = root / 'tools/build_modules.py'
+          assert new in script_path.read_text(encoding='utf-8'), 'Runtime ASSET_BASE not rewritten'
+          assert new in module_builder.read_text(encoding='utf-8'), 'Module generator base not rewritten'
+          subprocess.run(['python3', 'tools/build_script.py'], check=True)
+          subprocess.run(['python3', 'tools/build_modules.py'], check=True)
+
+          # Own-branded modules: keep the original MIT LICENSE in the repository.
+          variants = ('locket_cuios_stable.sgmodule', 'locket_cuios_no_widget.sgmodule',
+                      'locket_cuios_looks.sgmodule', 'locket_cuios_looks_native.sgmodule')
+          for name in variants:
+              path = root / name
+              contents = path.read_text(encoding='utf-8')
+              contents = re.sub(r'^#!name=.*$', '#!name=' + brand + ' • Locket Video', contents, count=1, flags=re.M)
+              contents = re.sub(r'^#!author=.*$', '#!author=' + brand + ' (Cuios source: MIT)', contents, count=1, flags=re.M)
+              assert old not in contents
+              assert 'ca-p12' not in contents.lower()
+              assert new in contents
+              path.write_text(contents, encoding='utf-8')
+
+          published = json.loads((root / 'release.json').read_text(encoding='utf-8'))
+          release_path = root / published['runtime']
+          assert release_path.exists(), 'Published script missing'
+          script_data = release_path.read_bytes()
+          assert hashlib.sha256(script_data).hexdigest() == published['sha256']
+          assert old.encode() not in script_data, 'Runtime still depends on original GitHub'
+          assert new.encode() in script_data, 'Runtime assets not redirected'
+          assert (root/'LICENSE').exists(), 'MIT LICENSE missing'
+
+          result = {
+            'owner_repository': repository,
+            'source': 'Cuios-shop/locket_cuios_stable (MIT derivative)',
+            'upstream_commit_first_snapshot': (root/'UPSTREAM_COMMIT.txt').read_text().strip() if (root/'UPSTREAM_COMMIT.txt').exists() else 'unknown',
+            'runtime': published['runtime'], 'runtime_sha256': published['sha256'],
+            'module': 'locket_cuios_stable.sgmodule',
+            'module_url': new + 'locket_cuios_stable.sgmodule',
+            'caption_link': 't.me/' + username,
+            'notes': 'Only generated standard modules validated; other protected legacy variants are not audited.'
+          }
+          (root/'OWN_RELEASE_MANIFEST.json').write_text(json.dumps(result, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+          print('Own standalone repository release verified:', result['module_url'])
+          OWNIFY_PY
+      - name: Publish OWN code and update URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish independent Locket snapshot and customized module'
+            git push origin HEAD:main
+          fi
+          echo '### Your own Shadowrocket module' >> "$GITHUB_STEP_SUMMARY"
+          echo "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/locket_cuios_stable.sgmodule" >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo 'The upstream repository is consulted only during the first build; keep ZIP backups of your own repository.' >> "$GITHUB_STEP_SUMMARY"
