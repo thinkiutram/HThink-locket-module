@@ -1,0 +1,11 @@
+{
+  "owner_repository": "thinkiutram/HThink-locket-module",
+  "source": "Cuios-shop/locket_cuios_stable (MIT derivative)",
+  "upstream_commit_first_snapshot": "8567dbf0cdf57dba8b713a2a4096093c587a82a5",
+  "runtime": "scripts/releases/locket-v4.0.5-d80659e90f06.js",
+  "runtime_sha256": "d80659e90f0681a56fc0d16fc28833469ead4104cc07e1579a18cf2710b16478",
+  "module": "locket_cuios_stable.sgmodule",
+  "module_url": "https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/locket_cuios_stable.sgmodule",
+  "caption_link": "t.me/mylocket123",
+  "notes": "Only generated standard modules validated; other protected legacy variants are not audited."
+}
