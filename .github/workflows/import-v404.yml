@@ -1,0 +1,114 @@
+name: Import HThink v4.0.4 Protected (one time)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/import-v404.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import-v404:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout HThink repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Mirror exact v4.0.4 protected JS from Cuios ONCE
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest='scripts/protected/locket-v4.0.4-15f350254cfd.js'
+          mkdir -p scripts/protected
+          if [[ -s "$dest" ]]; then
+            echo 'v4.0.4 JS already saved locally; NOT contacting Cuios.'
+          else
+            tmp="$(mktemp)"
+            urls=(
+              'https://raw.githubusercontent.com/Cuios-shop/locket_cuios_stable/3ec6f2ef7d0b00a160cf8c01b40c5f21a42610e4/scripts/protected/locket-v4.0.4-15f350254cfd.js'
+              'https://raw.githubusercontent.com/Cuios-shop/locket_cuios_stable/main/scripts/protected/locket-v4.0.4-15f350254cfd.js'
+            )
+            found=false
+            for url in "${urls[@]}"; do
+              echo 'Trying pinned commit or original main branch...'
+              if curl --fail --location --silent --show-error --retry 2 --connect-timeout 10 --max-time 75 "$url" -o "$tmp"; then
+                if python3 - "$tmp" <<'PY_VALIDATE'
+          import pathlib,sys
+          p=pathlib.Path(sys.argv[1]); b=p.read_bytes()
+          if len(b)<256 or len(b)>15_000_000: sys.exit('File too small/large; rejecting')
+          head=b[:512].lstrip().lower()
+          if b'404: not found' in head or head.startswith(b'<!doctype html') or head.startswith(b'<html'):
+            sys.exit('Received a 404 or HTML, not JavaScript')
+          print('Validated JavaScript download, bytes:',len(b))
+          PY_VALIDATE
+                then
+                  mv "$tmp" "$dest"
+                  found=true
+                  break
+                fi
+              fi
+            done
+            if [[ "$found" != true ]]; then
+              echo 'Could not retrieve exact protected v4.0.4 from upstream. Nothing has been saved.' >&2
+              exit 1
+            fi
+          fi
+          sha256sum "$dest" | tee HTHINK_V404_SHA256.txt
+          if command -v node >/dev/null; then
+            node --check "$dest" || echo 'WARNING: Node syntax check failed; inspect before using'
+          fi
+
+      - name: Create self-hosted HThink module
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > HThink_Locket_v4.0.4_Protected_Compat.sgmodule <<'EOF_HTHINK_MODULE'
+          #!name=HThink Locket • Looks 60s Mic • v4.0.4 P1
+          #!desc=Compatibility test: uses locally mirrored Cuios v4.0.4 Protected P1, not the rebuilt v4.0.5 runtime. One Locket module at a time. No proof of Gold or native upload.
+          #!author=HThink (Cuios source; preserve original LICENSE)
+          #!moduleUrl=https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/HThink_Locket_v4.0.4_Protected_Compat.sgmodule
+
+          [Script]
+          cuios4_status = type=http-request, pattern=^http://cuios-status\.invalid/(?:status|report\.json)(?:\?[^#]*)?$, script-path=https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/scripts/protected/locket-v4.0.4-15f350254cfd.js, timeout=10
+          cuios4_https = type=http-request, pattern=^https://(?:api\.revenuecat\.com|firebaseremoteconfig\.googleapis\.com)/cuios-check(?:\?[^#]*)?$, script-path=https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/scripts/protected/locket-v4.0.4-15f350254cfd.js, timeout=10
+          cuios4_request = type=http-request, pattern=^https://(?:(?:api\.revenuecat\.com|api\.rc-backup\.com|api-production\.8-lives-cat\.io)/(?:v1|v2)/(?:receipts|subscribers)(?:[/?]|$)|firebaseremoteconfig\.googleapis\.com/v1/projects/[^/?#]+/namespaces/[^/?#]+:fetch/?(?:\?[^#]*)?$), script-path=https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/scripts/protected/locket-v4.0.4-15f350254cfd.js, timeout=10
+          cuios4_revenuecat = type=http-response, pattern=^https://(?:api\.revenuecat\.com|api\.rc-backup\.com|api-production\.8-lives-cat\.io)/(?:v1|v2)/(?:receipts|subscribers)(?:[/?]|$), script-path=https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/scripts/protected/locket-v4.0.4-15f350254cfd.js, requires-body=true, max-size=1048576, timeout=10
+          cuios4_firebase = type=http-response, pattern=^https://firebaseremoteconfig\.googleapis\.com/v1/projects/(?:locket-4252a|869942740286)/namespaces/firebase:fetch/?(?:\?[^#]*)?$, script-path=https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/scripts/protected/locket-v4.0.4-15f350254cfd.js, argument=looks-aura-frame, requires-body=true, max-size=1048576, timeout=10
+
+          [Host]
+          cuios-status.invalid = 198.18.0.1
+
+          [MITM]
+          hostname = %APPEND% api.revenuecat.com, api.rc-backup.com, api-production.8-lives-cat.io, firebaseremoteconfig.googleapis.com
+          EOF_HTHINK_MODULE
+          if grep -Fq 'Cuios-shop/locket_cuios_stable/' HThink_Locket_v4.0.4_Protected_Compat.sgmodule; then
+            echo 'ERROR: Module still loads original Cuios paths' >&2
+            exit 1
+          fi
+          test -s scripts/protected/locket-v4.0.4-15f350254cfd.js
+          echo 'Module paths and local JS snapshot are present.'
+
+      - name: Save files to HThink repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f scripts/protected/locket-v4.0.4-15f350254cfd.js
+          git add -f HThink_Locket_v4.0.4_Protected_Compat.sgmodule HTHINK_V404_SHA256.txt
+          if ! git diff --cached --quiet; then
+            git commit -m 'Archive v4.0.4 protected script and HThink compatibility module'
+            git push origin HEAD:main
+          else
+            echo 'No changes to commit.'
+          fi
+          echo '### HThink v4.0.4 module' >> "$GITHUB_STEP_SUMMARY"
+          echo "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/HThink_Locket_v4.0.4_Protected_Compat.sgmodule" >> "$GITHUB_STEP_SUMMARY"
+          echo 'JavaScript SHA256:' >> "$GITHUB_STEP_SUMMARY"
+          cat HTHINK_V404_SHA256.txt >> "$GITHUB_STEP_SUMMARY"
+          echo 'NOTE: Protected JavaScript can contain hidden runtime dependencies. A local copy is not proof of complete independence or feature availability.' >> "$GITHUB_STEP_SUMMARY"
