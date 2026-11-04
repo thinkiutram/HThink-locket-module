@@ -1,0 +1,17 @@
+#!name=HThink Locket
+#!desc=HThink Locket | Video 60s va micro (can thu tren iPhone) | Ghi chu @hthinklocket | Chi bat 1 module Locket
+#!author=HThink Locket (derived from Cuios, MIT license retained)
+#!moduleUrl=https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/HThink_Locket.sgmodule
+
+[Script]
+hthink4_status = type=http-request, pattern=^http://cuios-status\.invalid/(?:status|report\.json)(?:\?[^#]*)?$, script-path=https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/scripts/releases/hthink-v404-telegram.js, timeout=10
+hthink4_https = type=http-request, pattern=^https://(?:api\.revenuecat\.com|firebaseremoteconfig\.googleapis\.com)/cuios-check(?:\?[^#]*)?$, script-path=https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/scripts/releases/hthink-v404-telegram.js, timeout=10
+hthink4_request = type=http-request, pattern=^https://(?:(?:api\.revenuecat\.com|api\.rc-backup\.com|api-production\.8-lives-cat\.io)/(?:v1|v2)/(?:receipts|subscribers)(?:[/?]|$)|firebaseremoteconfig\.googleapis\.com/v1/projects/[^/?#]+/namespaces/[^/?#]+:fetch/?(?:\?[^#]*)?$), script-path=https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/scripts/releases/hthink-v404-telegram.js, timeout=10
+hthink4_revenuecat = type=http-response, pattern=^https://(?:api\.revenuecat\.com|api\.rc-backup\.com|api-production\.8-lives-cat\.io)/(?:v1|v2)/(?:receipts|subscribers)(?:[/?]|$), script-path=https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/scripts/releases/hthink-v404-telegram.js, requires-body=true, max-size=1048576, timeout=10
+hthink4_firebase = type=http-response, pattern=^https://firebaseremoteconfig\.googleapis\.com/v1/projects/(?:locket-4252a|869942740286)/namespaces/firebase:fetch/?(?:\?[^#]*)?$, script-path=https://raw.githubusercontent.com/thinkiutram/HThink-locket-module/main/scripts/releases/hthink-v404-telegram.js, argument=looks-aura-frame, requires-body=true, max-size=1048576, timeout=10
+
+[Host]
+cuios-status.invalid = 198.18.0.1
+
+[MITM]
+hostname = %APPEND% api.revenuecat.com, api.rc-backup.com, api-production.8-lives-cat.io, firebaseremoteconfig.googleapis.com
