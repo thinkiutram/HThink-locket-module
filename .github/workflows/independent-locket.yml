@@ -3,6 +3,10 @@
 name: Build my independent Locket module
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/independent-locket.yml'
   workflow_dispatch:
     inputs:
       telegram:
@@ -22,8 +26,8 @@ jobs:
   create-own-copy:
     runs-on: ubuntu-latest
     env:
-      CUSTOM_TELEGRAM: ${{ inputs.telegram }}
-      CUSTOM_BRAND: ${{ inputs.brand }}
+      CUSTOM_TELEGRAM: ${{ inputs.telegram || 'mylocket123' }}
+      CUSTOM_BRAND: ${{ inputs.brand || 'HThink Locket' }}
     steps:
       - uses: actions/checkout@v4
         with:
