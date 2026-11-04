@@ -1,0 +1,188 @@
+name: HThink Locket - Telegram @hthinklocket (v4.0.4)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hthink-telegram-v404.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  branding:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout HThink repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Build own caption-only runtime from archived v4.0.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/hthink_brand_v404.py <<'PY_HTHINK_BUILDER'
+          from pathlib import Path
+          import re, hashlib, json, subprocess, os
+          
+          owner = os.environ.get('GITHUB_REPOSITORY','thinkiutram/HThink-locket-module')
+          brand = 'HThink Locket'
+          telegram = 'hthinklocket'
+          if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', owner):
+              raise SystemExit('Invalid repository')
+          source = Path('scripts/protected/locket-v4.0.4-15f350254cfd.js')
+          module_src = Path('HThink_Locket_v4.0.4_Protected_Compat.sgmodule')
+          if not source.is_file() or source.stat().st_size < 256:
+              raise SystemExit('Original archived Protected JS not found. Run import-v404 first')
+          if not module_src.is_file():
+              raise SystemExit('HThink source module not found. Run import-v404 first')
+          original = source.read_text(encoding='utf-8')
+          prefix = r'''/* HThink caption-only adapter for original v4.0.4 Protected runtime.
+           * Derived from Cuios (retain original MIT notices in repository).
+           * Does not alter the native recorder, microphone or entitlements.
+           */
+          (function () {
+            "use strict";
+            var __originalDone = typeof $done === "function" ? $done : null;
+            var __url = typeof $request !== "undefined" && $request ? String($request.url || "") : "";
+            var __firebase = /^https:\/\/firebaseremoteconfig\.googleapis\.com\/v1\/projects\/(?:locket-4252a|869942740286)\/namespaces\/firebase:fetch\/?(?:\?[^#]*)?$/i.test(__url);
+            var __labels = {
+              "caption:cuios_brand_certificate": "@hthinklocket",
+              "caption:cuios_brand_copyright": "HThink Locket",
+              "caption:cuios_brand_cun": "Video dài",
+              "caption:cuios_brand_tom": "Có âm thanh"
+            };
+            var __oldText = {
+              "t.me/tomqtx1111": "@hthinklocket",
+              "Bản quyền Cuios": "HThink Locket",
+              "Cưn🍤": "Video dài",
+              "tom11th5": "Có âm thanh"
+            };
+            function __brand(response) {
+              if (!__firebase || !response || typeof response.body !== "string") return response;
+              try {
+                var root = JSON.parse(response.body);
+                if (!root || !root.entries || !root.entries.overlay_items) return response;
+                var raw = root.entries.overlay_items;
+                var groups = typeof raw === "string" ? JSON.parse(raw) : raw;
+                if (!Array.isArray(groups)) return response;
+                var changed = 0;
+                groups.forEach(function (group) {
+                  if (!group || !Array.isArray(group.items)) return;
+                  var brandingGroup = false;
+                  group.items.forEach(function (item) {
+                    if (!item || !item.caption || typeof item.caption !== "object") return;
+                    var id = String(item.overlay_id || "");
+                    var old = item.caption.text;
+                    var next = Object.prototype.hasOwnProperty.call(__labels, id) ? __labels[id] :
+                      Object.prototype.hasOwnProperty.call(__oldText, old) ? __oldText[old] : null;
+                    if (next === null || next === undefined) return;
+                    brandingGroup = true;
+                    if (old !== next) { item.caption.text = next; changed++; }
+                    if (item.caption.localized_text && typeof item.caption.localized_text === "object") {
+                      ["vi", "en"].forEach(function (lang) {
+                        if (item.caption.localized_text[lang] !== next) {
+                          item.caption.localized_text[lang] = next;
+                          changed++;
+                        }
+                      });
+                    }
+                  });
+                  if (brandingGroup && group.section !== "HThink Locket • Ghi chú") {
+                    group.section = "HThink Locket • Ghi chú";
+                    changed++;
+                  }
+                });
+                if (!changed) {
+                  if (typeof console !== "undefined" && console.log) console.log("[HThink] no matching caption overlay; original response passed through");
+                  return response;
+                }
+                root.entries.overlay_items = typeof raw === "string" ? JSON.stringify(groups) : groups;
+                var output = Object.assign({}, response, { body: JSON.stringify(root) });
+                var headers = Object.assign({}, output.headers || {});
+                Object.keys(headers).forEach(function (name) {
+                  if (/^(?:etag|content-length|last-modified)$/i.test(name)) delete headers[name];
+                });
+                headers["Cache-Control"] = "no-store";
+                output.headers = headers;
+                if (typeof console !== "undefined" && console.log) console.log("[HThink] updated caption overlay fields: " + changed);
+                return output;
+              } catch (e) {
+                if (typeof console !== "undefined" && console.log) console.log("[HThink] overlay schema mismatch; original response passed through");
+                return response;
+              }
+            }
+            function __hthinkDone(value) {
+              if (!__originalDone) return;
+              return __originalDone(__brand(value));
+            }
+            // Keep the exact archived v4.0.4 runtime inside a lexical $done adapter.
+            (function ($done) {
+          '''
+          suffix = r'''
+            })(__hthinkDone);
+          })();
+          '''
+          output_script = Path('scripts/releases/hthink-v404-telegram.js')
+          output_script.parent.mkdir(parents=True, exist_ok=True)
+          output_script.write_text(prefix + original + suffix, encoding='utf-8')
+          subprocess.run(['node','--check',str(output_script)],check=True)
+          
+          base = f'https://raw.githubusercontent.com/{owner}/main/'
+          oldref = base + source.as_posix()
+          newref = base + output_script.as_posix()
+          m = module_src.read_text(encoding='utf-8')
+          if m.count(oldref) != 5:
+              raise SystemExit(f'Expected exactly five HThink self-hosted references, got {m.count(oldref)}')
+          m = m.replace(oldref,newref)
+          m = re.sub(r'^#!name=.*$', '#!name=HThink Locket • 60s + Mic • Telegram @hthinklocket', m, count=1, flags=re.M)
+          m = re.sub(r'^#!desc=.*$', '#!desc=HThink customized captions; v4.0.4 Protected base preserved; video/mic require device testing. Only one Locket module at once.', m, count=1, flags=re.M)
+          m = re.sub(r'^#!author=.*$', '#!author=HThink Locket (Cuios source, preserve MIT license)', m, count=1, flags=re.M)
+          m = re.sub(r'^#!moduleUrl=.*$', '#!moduleUrl='+base+'HThink_Locket_Telegram_v404.sgmodule', m, count=1, flags=re.M)
+          module_out=Path('HThink_Locket_Telegram_v404.sgmodule')
+          module_out.write_text(m, encoding='utf-8')
+          if 'Cuios-shop/locket_cuios_stable' in m: raise SystemExit('Module contains upstream active URL')
+          if m.count(newref)!=5: raise SystemExit('Module URL rewrite incomplete')
+          report=Path('docs/HTHINK_TELEGRAM_V404_REPORT.md')
+          report.parent.mkdir(parents=True,exist_ok=True)
+          report.write_text(f'''# HThink v4.0.4 Telegram overlay report
+          
+          - Brand: **HThink Locket**
+          - Telegram caption: **@{telegram}**
+          - Source protected file: `{source}`
+          - Source SHA-256: `{hashlib.sha256(source.read_bytes()).hexdigest()}`
+          - Wrapped runtime: `{output_script}`
+          - Module: `{module_out}`
+          - Original archived v4.0.4 file remains unchanged
+          - Adapter only changes matching caption items in Firebase response; it does not modify video, mic or Gold configuration fields
+          - Confirm actual effect using `[HThink] updated caption overlay fields` in Shadowrocket logs. If `no matching caption overlay`, branding was not applied
+          - Wrapper has only been syntax-checked until tested on a real iPhone
+          - Keep original Cuios MIT LICENSE and notices for redistributed source
+          ''',encoding='utf-8')
+          print('Built',output_script,module_out,report)
+          PY_HTHINK_BUILDER
+          python3 /tmp/hthink_brand_v404.py
+          node --check scripts/releases/hthink-v404-telegram.js
+          test -s HThink_Locket_Telegram_v404.sgmodule
+          test -s docs/HTHINK_TELEGRAM_V404_REPORT.md
+
+      - name: Publish HThink module and caption audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f scripts/releases/hthink-v404-telegram.js
+          git add HThink_Locket_Telegram_v404.sgmodule docs/HTHINK_TELEGRAM_V404_REPORT.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'Create HThink v4.0.4 Telegram caption-only variant'
+            git push origin HEAD:main
+          fi
+          echo '### HThink Locket Telegram v4.0.4' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Brand: HThink Locket' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Telegram: @hthinklocket' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Module:' >> "$GITHUB_STEP_SUMMARY"
+          echo "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/HThink_Locket_Telegram_v404.sgmodule" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Note: iPhone verification required for captions/video/microphone.' >> "$GITHUB_STEP_SUMMARY"
